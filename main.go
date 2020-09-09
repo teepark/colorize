@@ -1,15 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 
 	"github.com/gookit/color"
 )
@@ -21,6 +20,9 @@ type config struct {
 	successTheme *color.Theme
 	failureTheme *color.Theme
 
+	successPattern *regexp.Regexp
+	failurePattern *regexp.Regexp
+
 	cmd     string
 	cmdargs []string
 }
@@ -28,15 +30,18 @@ type config struct {
 func parseArgs() *config {
 	conf := new(config)
 	var (
-		listThemes                 bool
-		successTheme, failureTheme string
+		listThemes                     bool
+		successTheme, failureTheme     string
+		successPattern, failurePattern string
 	)
 
 	flag.BoolVar(&conf.noStdout, "no-stdout", false, "pass stdout through unchanged")
 	flag.BoolVar(&conf.noStderr, "no-stderr", false, "pass stderr through unchanged")
 	flag.BoolVar(&listThemes, "list-themes", false, "display the list of available themes")
 	flag.StringVar(&successTheme, "success-theme", "success", "theme to use on success (use -list-themes flag to see options)")
-	flag.StringVar(&failureTheme, "failure-theme", "danger", "theme to use on failure (use -list-themes flag to see options)")
+	flag.StringVar(&failureTheme, "failure-theme", "error", "theme to use on failure (use -list-themes flag to see options)")
+	flag.StringVar(&successPattern, "success-pattern", "(?i)\\b(success|pass|ok)\\b", "regular expression to identify success text")
+	flag.StringVar(&failurePattern, "failure-pattern", "(?i)\\b(fail|failure|error)\\b", "regular expression to identify failure text")
 	flag.Parse()
 
 	if listThemes {
@@ -46,6 +51,16 @@ func parseArgs() *config {
 
 	conf.successTheme = color.GetTheme(successTheme)
 	conf.failureTheme = color.GetTheme(failureTheme)
+
+	var err error
+	conf.successPattern, err = regexp.Compile(successPattern)
+	if err != nil {
+		log.Fatal(err)
+	}
+	conf.failurePattern, err = regexp.Compile(failurePattern)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	args := flag.Args()
 	if len(args) == 0 || conf.successTheme == nil || conf.failureTheme == nil {
@@ -65,7 +80,7 @@ func printThemeList() {
 }
 
 func usageAndExit() {
-	fmt.Fprintf(os.Stderr, "%s [<flags>] <cmd> [<cmdarg>, ...]\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "%s [<flags>] <cmd> [--] [<cmdarg>, ...]\n", os.Args[0])
 	flag.PrintDefaults()
 	os.Exit(1)
 }
@@ -78,42 +93,28 @@ func main() {
 
 func runCommand(conf *config) int {
 	cmd := exec.CommandContext(context.Background(), conf.cmd, conf.cmdargs...)
-	var stdoutBuf, stderrBuf *bytes.Buffer
+	var stdoutColor, stderrColor *colorizingWriter
 
 	if conf.noStdout {
 		cmd.Stdout = os.Stdout
 	} else {
-		stdoutBuf = new(bytes.Buffer)
-		cmd.Stdout = stdoutBuf
+		stdoutColor = newColorizingWriter(os.Stdout, conf.successPattern, conf.failurePattern, conf.successTheme, conf.failureTheme)
+		cmd.Stdout = stdoutColor
 	}
+
 	if conf.noStderr {
 		cmd.Stderr = os.Stderr
 	} else {
-		stderrBuf = new(bytes.Buffer)
-		cmd.Stderr = stderrBuf
+		stderrColor = newColorizingWriter(os.Stderr, conf.successPattern, conf.failurePattern, conf.successTheme, conf.failureTheme)
+		cmd.Stderr = stderrColor
 	}
 
-	err := cmd.Run()
 	var exitErr *exec.ExitError
-	if err != nil && !errors.As(err, &exitErr) {
+	err := cmd.Run()
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	} else if err != nil {
 		log.Fatal(err)
 	}
-
-	exitCode := cmd.ProcessState.ExitCode()
-
-	var theme *color.Theme
-	if exitCode == 0 {
-		theme = conf.successTheme
-	} else {
-		theme = conf.failureTheme
-	}
-
-	if !conf.noStdout {
-		io.WriteString(os.Stdout, theme.Sprint(stdoutBuf.String()))
-	}
-	if !conf.noStderr {
-		io.WriteString(os.Stderr, theme.Sprint(stderrBuf.String()))
-	}
-
-	return exitCode
+	return 0
 }
