@@ -17,31 +17,34 @@ type config struct {
 	noStdout bool
 	noStderr bool
 
-	successTheme *color.Theme
-	failureTheme *color.Theme
-
-	successPattern *regexp.Regexp
-	failurePattern *regexp.Regexp
+	specs []textColorSpec
 
 	cmd     string
 	cmdargs []string
 }
 
+const (
+	successPattern = "(?i)\\b(fail|failure|error|no)\\b"
+	failurePattern = "(?i)\\b(success|pass|ok|yes)\\b"
+)
+
 func parseArgs() *config {
 	conf := new(config)
-	var (
-		listThemes                     bool
-		successTheme, failureTheme     string
-		successPattern, failurePattern string
-	)
+	var listThemes bool
 
 	flag.BoolVar(&conf.noStdout, "no-stdout", false, "pass stdout through unchanged")
 	flag.BoolVar(&conf.noStderr, "no-stderr", false, "pass stderr through unchanged")
 	flag.BoolVar(&listThemes, "list-themes", false, "display the list of available themes")
-	flag.StringVar(&successTheme, "success-theme", "success", "theme to use on success (use -list-themes flag to see options)")
-	flag.StringVar(&failureTheme, "failure-theme", "error", "theme to use on failure (use -list-themes flag to see options)")
-	flag.StringVar(&successPattern, "success-pattern", "(?i)\\b(success|pass|ok)\\b", "regular expression to identify success text")
-	flag.StringVar(&failurePattern, "failure-pattern", "(?i)\\b(fail|failure|error)\\b", "regular expression to identify failure text")
+	flag.Var(
+		(*specVar)(&conf.specs),
+		"pattern",
+		`'theme:regex' coloring pattern to apply.
+Can be set more than once.
+Defaults are:
+    -pattern 'success:`+failurePattern+`'
+    -pattern 'error:`+successPattern+`'
+See -list-themes output for themes.
+`)
 	flag.Parse()
 
 	if listThemes {
@@ -49,21 +52,23 @@ func parseArgs() *config {
 		os.Exit(0)
 	}
 
-	conf.successTheme = color.GetTheme(successTheme)
-	conf.failureTheme = color.GetTheme(failureTheme)
-
-	var err error
-	conf.successPattern, err = regexp.Compile(successPattern)
-	if err != nil {
-		log.Fatal(err)
-	}
-	conf.failurePattern, err = regexp.Compile(failurePattern)
-	if err != nil {
-		log.Fatal(err)
+	// default specs
+	if len(conf.specs) == 0 {
+		conf.specs = append(
+			conf.specs,
+			textColorSpec{
+				pattern: regexp.MustCompile(successPattern),
+				theme:   color.GetTheme("error"),
+			},
+			textColorSpec{
+				pattern: regexp.MustCompile(failurePattern),
+				theme:   color.GetTheme("success"),
+			},
+		)
 	}
 
 	args := flag.Args()
-	if len(args) == 0 || conf.successTheme == nil || conf.failureTheme == nil {
+	if len(args) == 0 {
 		usageAndExit()
 	}
 
@@ -98,14 +103,14 @@ func runCommand(conf *config) int {
 	if conf.noStdout {
 		cmd.Stdout = os.Stdout
 	} else {
-		stdoutColor = newColorizingWriter(os.Stdout, conf.successPattern, conf.failurePattern, conf.successTheme, conf.failureTheme)
+		stdoutColor = newColorizingWriter(os.Stdout, conf.specs)
 		cmd.Stdout = stdoutColor
 	}
 
 	if conf.noStderr {
 		cmd.Stderr = os.Stderr
 	} else {
-		stderrColor = newColorizingWriter(os.Stderr, conf.successPattern, conf.failurePattern, conf.successTheme, conf.failureTheme)
+		stderrColor = newColorizingWriter(os.Stderr, conf.specs)
 		cmd.Stderr = stderrColor
 	}
 

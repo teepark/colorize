@@ -10,13 +10,18 @@ import (
 	"github.com/gookit/color"
 )
 
-func colorize(raw string, theme *color.Theme, re *regexp.Regexp) string {
+type textColorSpec struct {
+	pattern *regexp.Regexp
+	theme   *color.Theme
+}
+
+func (tcs textColorSpec) colorize(raw string) string {
 	var b strings.Builder
-	matches := re.FindAllStringIndex(raw, -1)
+	matches := tcs.pattern.FindAllStringIndex(raw, -1)
 	latest := 0
 	for _, match := range matches {
 		b.WriteString(raw[latest:match[0]])
-		b.WriteString(theme.Sprint(raw[match[0]:match[1]]))
+		b.WriteString(tcs.theme.Sprint(raw[match[0]:match[1]]))
 		latest = match[1]
 	}
 	b.WriteString(raw[latest:len(raw)])
@@ -24,25 +29,12 @@ func colorize(raw string, theme *color.Theme, re *regexp.Regexp) string {
 }
 
 type colorizingWriter struct {
-	w   io.Writer
-
-	successPattern *regexp.Regexp
-	failurePattern *regexp.Regexp
-
-	successTheme *color.Theme
-	failureTheme *color.Theme
+	w     io.Writer
+	specs []textColorSpec
 }
 
-func newColorizingWriter(w io.Writer, successPattern, failurePattern *regexp.Regexp, successTheme, failureTheme *color.Theme) *colorizingWriter {
-	return &colorizingWriter{
-		w:   w,
-
-		successPattern: successPattern,
-		failurePattern: failurePattern,
-
-		successTheme: successTheme,
-		failureTheme: failureTheme,
-	}
+func newColorizingWriter(w io.Writer, specs []textColorSpec) *colorizingWriter {
+	return &colorizingWriter{w: w, specs: specs}
 }
 
 func (cw *colorizingWriter) Write(data []byte) (nn int, err error) {
@@ -59,8 +51,9 @@ func (cw *colorizingWriter) ReadFrom(r io.Reader) (int64, error) {
 		line, rderr := buf.ReadString('\n')
 		written += int64(len(line))
 
-		line = colorize(line, cw.failureTheme, cw.failurePattern)
-		line = colorize(line, cw.successTheme, cw.successPattern)
+		for _, spec := range cw.specs {
+			line = spec.colorize(line)
+		}
 
 		_, wrerr := io.WriteString(cw.w, line)
 		if wrerr != nil {
