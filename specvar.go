@@ -23,6 +23,9 @@ func (sv *specVar) Set(value string) error {
 	themeName, reString := pair[0], pair[1]
 
 	theme := color.GetTheme(themeName)
+	if theme == nil {
+		return fmt.Errorf("unrecognized theme name '%s'", themeName)
+	}
 	regex, err := regexp.Compile(reString)
 	if err != nil {
 		return err

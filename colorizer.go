@@ -41,7 +41,7 @@ func (cw *colorizingWriter) Write(data []byte) (nn int, err error) {
 	// colorizingWriter must implement the io.Writer interface to type check,
 	// but if we implement io.ReaderFrom then io.Copy() will only use ReadFrom().
 	// It's much harder to implement reentrant writes so I'm not bothering.
-	panic("no implementation")
+	panic("colorizingWriter.Write(): no implementation")
 }
 
 func (cw *colorizingWriter) ReadFrom(r io.Reader) (int64, error) {
