@@ -24,7 +24,7 @@ func (tcs textColorSpec) colorize(raw string) string {
 		b.WriteString(tcs.theme.Sprint(raw[match[0]:match[1]]))
 		latest = match[1]
 	}
-	b.WriteString(raw[latest:len(raw)])
+	b.WriteString(raw[latest:])
 	return b.String()
 }
 
