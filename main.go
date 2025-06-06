@@ -72,5 +72,8 @@ func main() {
 		printThemeList()
 		os.Exit(0)
 	}
-	io.Copy(newColorizingWriter(os.Stdout, conf.specs), os.Stdin)
+	if _, err := io.Copy(newColorizingWriter(os.Stdout, conf.specs), os.Stdin); err != nil {
+		fmt.Fprintf(os.Stderr, "Error copying input: %v\n", err)
+		os.Exit(1)
+	}
 }
